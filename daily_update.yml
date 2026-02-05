@@ -1,0 +1,40 @@
+name: Daily ETF Update
+
+on:
+  schedule:
+    # 重点修改这里：
+    # UTC 0:00 = 北京时间 8:00
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 保留这个，允许你手动点击测试
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    permissions:          # 新增权限配置，确保能写入文件
+      contents: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        pip install requests
+
+    - name: Run script
+      run: python update.py
+
+    - name: Commit and push changes
+      run: |
+        git config --global user.name "GitHub Action"
+        git config --global user.email "action@github.com"
+        # 如果 history.json 存在变化则提交
+        git add history.json
+        git commit -m "Auto update data (8:00 AM)" || exit 0
+        git push
