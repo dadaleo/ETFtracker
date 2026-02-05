@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的ETF资产驾驶舱 (云端自动版)</title>
+    <style>
+        /* ================= 配色方案 ================= */
+        :root { 
+            --increase: #2e7d32; /* 绿色 (增) */
+            --decrease: #d32f2f; /* 红色 (减) */
+            --bg: #f5f7fa; 
+            --card-bg: #e3f2fd; 
+            --white: #ffffff;
+            --text: #333; 
+            --border: #f0f0f0;
+        }
+        
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); padding: 15px; color: var(--text); max-width: 900px; margin: 0 auto;}
+        
+        /* 顶部卡片 */
+        .dashboard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+        .card { 
+            background: var(--card-bg); padding: 15px 10px; border-radius: 12px; 
+            box-shadow: 0 4px 6px rgba(33, 150, 243, 0.1); text-align: center; border: 1px solid #bbdefb;
+        }
+        .card h3 { margin: 0 0 5px 0; font-size: 13px; color: #1565c0; font-weight: 600; }
+        .card .main-val { font-size: 20px; font-weight: bold; display: block; margin-bottom: 5px; color: #0d47a1; }
+        .card .sub-val { font-size: 12px; font-weight: 500; }
+
+        /* 面板与表格 */
+        .panel { background: var(--white); padding: 15px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .panel-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border); padding-bottom: 10px; margin-bottom: 10px; }
+        .panel h2 { margin: 0; font-size: 16px; color: #444; }
+        
+        .table-scroll { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; min-width: 700px; font-size: 13px; }
+        th, td { padding: 10px 8px; text-align: right; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        th { background: #fafafa; font-weight: 600; color: #555; text-align: right;}
+        th:first-child, td:first-child { text-align: left; }
+        
+        /* 基准行样式 */
+        .benchmark-row { background-color: #fff8e1; color: #795548; font-weight: bold; }
+        .benchmark-row td { border-bottom: 2px solid #ffe0b2; }
+
+        /* 颜色工具 */
+        .up { color: var(--increase); font-weight: bold; }
+        .down { color: var(--decrease); font-weight: bold; }
+        .gray { color: #ccc; font-size: 12px; }
+        .badge { background: #f5f5f5; color: #666; padding: 2px 4px; border-radius: 4px; font-size: 10px; border: 1px solid #eee;}
+        
+        button { background: #1976d2; color: white; border: none; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        
+        @media (max-width: 600px) { .dashboard { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard">
+        <div class="card">
+            <h3>指定ETF总份额 (亿份)</h3>
+            <span class="main-val" id="total-shares">--</span>
+            <div class="sub-val" id="total-shares-diff">--</div>
+        </div>
+        <div class="card">
+            <h3>指定ETF总市值 (亿元)</h3>
+            <span class="main-val" id="total-amt">--</span>
+            <div class="sub-val" id="total-amt-diff">--</div>
+        </div>
+        <div class="card">
+            <h3>A股总市值 (万亿)</h3>
+            <span class="main-val" id="market-cap">--</span>
+            <div class="sub-val" id="market-cap-diff">--</div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-header">
+            <h2>📋 T+0 实时明细 (含增减)</h2>
+            <button onclick="location.reload()">🔄 刷新</button>
+        </div>
+        <div class="table-scroll">
+            <table id="fund-table">
+                <thead>
+                    <tr>
+                        <th width="20%">基金</th>
+                        <th width="10%">净值</th>
+                        <th width="15%">份额(亿)</th>
+                        <th width="15%">份额变动</th>
+                        <th width="20%">金额(亿)</th>
+                        <th width="20%">金额变动</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody-current">
+                    <tr><td colspan="6" style="text-align:center;padding:20px;color:#999;">数据加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-header">
+            <h2>📅 每日历史 (数据源: GitHub)</h2>
+            </div>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="text-align:left;">日期</th>
+                        <th>份额<br><span style="font-size:10px;font-weight:normal">比昨日</span></th>
+                        <th>金额<br><span style="font-size:10px;font-weight:normal">比昨日</span></th>
+                        <th>沪深总值</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody-history"></tbody>
+            </table>
+        </div>
+    </div>
+
+<script>
+    // ================== 1. 配置区域 ==================
+    const MY_FUNDS = [
+        "sh510300", "sh510310", "sz159919", "sh510330", 
+        "sh510050", "sz159915", "sz159949", "sh510500", 
+        "sh588000", "sz159629", "sh512100"
+    ];
+
+    // ★★★ 2025-12-31 基准数据 (已内置) ★★★
+    const BASE_2025 = {
+        date: "2025-12-31",     
+        totalShares: 4539.19,   
+        totalCap: 17678.74,     
+        marketCap: 108.86       
+    };
+    // ============================================
+
+    function loadScript(url) {
+        return new Promise((resolve, reject) => {
+            const sc = document.createElement('script');
+            sc.src = url; sc.onload = resolve; sc.onerror = reject;
+            document.head.appendChild(sc);
+        });
+    }
+
+    function fmtNum(n, d=2) { return (n===null||isNaN(n)) ? "--" : n.toFixed(d); }
+    
+    // 颜色规则：红减(down) 绿增(up)
+    function fmtDiff(num) {
+        if(num===null||isNaN(num)||num===0) return '<span class="gray">-</span>';
+        const cls = num > 0 ? "up" : "down";
+        return `<span class="${cls}">${num>0?"+":""}${num.toFixed(2)}</span>`;
+    }
+
+    function fmtCardDiff(num, suffix="") {
+        if(num===null||isNaN(num)) return '<span class="gray">--</span>';
+        const cls = num > 0 ? "up" : (num < 0 ? "down" : "gray");
+        return `<span class="${cls}">较上日 ${num>0?"+":""}${num.toFixed(2)}${suffix}</span>`;
+    }
+
+    async function init() {
+        const tbCurr = document.getElementById('tbody-current');
+        const tbHist = document.getElementById('tbody-history');
+
+        // --- 1. 读取 history.json (Python生成的文件) ---
+        let historyStore = {};
+        try {
+            // 加个时间戳参数，防止 GitHub Pages 缓存旧数据
+            const res = await fetch('history.json?t=' + new Date().getTime());
+            if (res.ok) {
+                historyStore = await res.json();
+            }
+        } catch (e) {
+            console.log("暂无历史文件，使用纯基准模式");
+        }
+
+        // --- 2. 寻找对比锚点 (昨天的数据) ---
+        let lastDayData = null;
+        const todayStr = new Date().toLocaleDateString('en-CA'); // 获取 YYYY-MM-DD 格式
+        
+        // 按照日期倒序排列
+        const sortedDates = Object.keys(historyStore).sort((a,b) => new Date(b) - new Date(a));
+        
+        // 找到最近的一个“非今天”的数据作为对比基准
+        for(let d of sortedDates) {
+            if(d !== todayStr) { lastDayData = historyStore[d]; break; }
+        }
+        
+        // 如果没有历史记录，就用 2025 基准
+        if (!lastDayData) lastDayData = BASE_2025;
+        
+        // 获取昨日明细 (用于计算单只基金增减)
+        const lastDetails = lastDayData.details || {};
+
+        // --- 3. 请求腾讯接口获取【今日实时数据】 ---
+        try {
+            await loadScript(`https://qt.gtimg.cn/q=${[...MY_FUNDS, "sh000001", "sz399106"].join(',')}`);
+        } catch(e) { tbCurr.innerHTML = `<tr><td colspan="6">网络错误</td></tr>`; return; }
+
+        // --- 4. 计算今日数据 ---
+        tbCurr.innerHTML = "";
+        let todayShares = 0, todayAmt = 0;
+        
+        MY_FUNDS.forEach(code => {
+            if(!window[`v_${code}`]) return;
+            const data = window[`v_${code}`].split("~");
+            const name = data[1];
+            const price = parseFloat(data[3]);
+            const cap = parseFloat(data[45]);
+            const shares = (price>0 && cap>0) ? cap/price : 0;
+            
+            todayShares += shares;
+            todayAmt += cap;
+            
+            // 计算单只基金变动
+            let shareDiff = null, capDiff = null;
+            if (lastDetails[code]) {
+                shareDiff = shares - lastDetails[code].shares;
+                capDiff = cap - lastDetails[code].cap;
+            }
+
+            tbCurr.innerHTML += `
+                <tr>
+                    <td><span class="badge">${code}</span><br><b>${name}</b></td>
+                    <td>${price.toFixed(3)}</td>
+                    <td><b>${fmtNum(shares)}</b></td>
+                    <td>${fmtDiff(shareDiff)}</td>
+                    <td><b>${fmtNum(cap)}</b></td>
+                    <td>${fmtDiff(capDiff)}</td>
+                </tr>`;
+        });
+
+        // 全市场市值 (万亿)
+        let mktCap = 0;
+        if(window.v_sh000001) mktCap += (parseFloat(window.v_sh000001.split("~")[45]) || 0)/10000;
+        if(window.v_sz399106) mktCap += (parseFloat(window.v_sz399106.split("~")[45]) || 0)/10000;
+
+        // --- 5. 更新顶部卡片 ---
+        document.getElementById('total-shares').innerText = fmtNum(todayShares);
+        document.getElementById('total-shares-diff').innerHTML = fmtCardDiff(todayShares - lastDayData.totalShares);
+        
+        document.getElementById('total-amt').innerText = fmtNum(todayAmt);
+        document.getElementById('total-amt-diff').innerHTML = fmtCardDiff(todayAmt - lastDayData.totalCap);
+        
+        if(mktCap > 0) {
+            document.getElementById('market-cap').innerText = fmtNum(mktCap);
+            document.getElementById('market-cap-diff').innerHTML = fmtCardDiff(mktCap - lastDayData.marketCap);
+        }
+
+        // --- 6. 渲染历史表 (数据源: history.json) ---
+        tbHist.innerHTML = "";
+        
+        // 先渲染基准行 (固定置顶)
+        tbHist.innerHTML += `
+            <tr class="benchmark-row">
+                <td>${BASE_2025.date} <span style="font-size:10px">基准</span></td>
+                <td>${fmtNum(BASE_2025.totalShares)}</td>
+                <td>${fmtNum(BASE_2025.totalCap)}</td>
+                <td>${fmtNum(BASE_2025.marketCap)}</td>
+            </tr>
+        `;
+
+        // 再渲染历史记录 (倒序)
+        for(let i=0; i<sortedDates.length; i++) {
+            const curr = historyStore[sortedDates[i]];
+            // 找对比对象：如果还有下一条，就对比下一条；否则对比基准
+            const prev = (i < sortedDates.length - 1) ? historyStore[sortedDates[i+1]] : BASE_2025;
+            
+            // 格式化日期
+            const dObj = new Date(curr.date);
+            const dateStr = `${dObj.getMonth()+1}-${dObj.getDate()}`;
+
+            tbHist.innerHTML += `
+                <tr>
+                    <td><b>${dateStr}</b></td>
+                    <td>
+                        <b>${fmtNum(curr.totalShares)}</b>
+                        <br>${fmtDiff(curr.totalShares - prev.totalShares)}
+                    </td>
+                    <td>
+                        <b>${fmtNum(curr.totalCap)}</b>
+                        <br>${fmtDiff(curr.totalCap - prev.totalCap)}
+                    </td>
+                    <td>${fmtNum(curr.marketCap)}</td>
+                </tr>
+            `;
+        }
+    }
+
+    init();
+</script>
+</body>
+</html>
