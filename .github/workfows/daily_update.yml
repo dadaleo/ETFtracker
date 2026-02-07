@@ -4,7 +4,7 @@ on:
   schedule:
     # 重点修改这里：
     # UTC 0:00 = 北京时间 8:00
-    - cron: '0 0 * * *'
+    - cron: '30 7 * * *'
   workflow_dispatch: # 保留这个，允许你手动点击测试
 
 jobs:
